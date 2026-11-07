@@ -1,5 +1,5 @@
 
-name: FC Mobile Hub APK
+name: FC Mobile Hub APK Builder
 
 on:
   workflow_dispatch:
@@ -17,45 +17,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Extract Android project
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          SDKMANAGER=$(find "$ANDROID_HOME" -type f -name sdkmanager | head -n 1)
-          if [ -z "$SDKMANAGER" ]; then
-            echo "sdkmanager bulunamadi"
-            find "$ANDROID_HOME" -maxdepth 4 -type d
+          set -e
+          mkdir -p extracted
+          unzip -q FCMobileHub-Fixed.zip -d extracted
+
+          echo "ZIP contents:"
+          find extracted -maxdepth 4 -type f | head -100
+
+          PROJECT=$(find extracted -type f -name gradlew \
+            -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: ZIP içinde Gradle Wrapper bulunamadı."
             exit 1
           fi
-          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
-          "$SDKMANAGER" --version
-          yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+          echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
 
-      - name: Verify project
+      - name: Setup Android components
         run: |
-          ls -la
-          test -f settings.gradle
-          test -f build.gradle
-          test -f app/build.gradle
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Build APK
-        run: gradle assembleDebug --stacktrace
+        run: |
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FC-Mobile-Hub
-          path: app/build/outputs/apk/debug/*.apk
+          name: FC-Mobile-Hub-APK
+          path: extracted/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           
